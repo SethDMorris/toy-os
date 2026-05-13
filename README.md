@@ -75,7 +75,7 @@ toy-os/
 ## How It Works
 
 1. **BIOS** loads the 512-byte boot sector to `0x7C00`
-2. **Bootloader** reads the kernel from disk to `0x1000`, sets up a GDT, enables protected mode, and jumps to the kernel
+2. **Bootloader** reads the kernel from disk to `0x10000`, sets up a GDT, enables protected mode, and jumps to the kernel
 3. **Kernel entry** zeroes BSS, then calls `kernel_main()`
 4. **Kernel** initializes VGA, remaps the PIC, loads the IDT, enables interrupts, and enters the shell loop
 5. **Shell** reads keystrokes via an interrupt-driven ring buffer and dispatches commands

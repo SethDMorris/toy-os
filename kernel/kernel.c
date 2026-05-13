@@ -241,13 +241,13 @@ static void cmd_mem(void) {
 
     print_label("  0x00000000 - 0x000003FF  ");  print_value("Real-mode IVT\n");
     print_label("  0x00000400 - 0x000004FF  ");  print_value("BIOS data area\n");
-    print_label("  0x00001000 - 0x00007BFF  ");  print_value("Kernel image\n");
+    print_label("  0x00001000 - 0x00007BFF  ");  print_value("Low memory scratch\n");
     print_label("  0x00007C00 - 0x00007DFF  ");  print_value("Boot sector\n");
-    print_label("  0x00010000 - 0x0008FFFF  ");  print_value("Stack (grows down from 0x90000)\n");
+    print_label("  0x00010000 - 0x00017FFF  ");  print_value("Kernel image\n");
+    print_label("  0x00018000 - 0x0008FFFF  ");  print_value("Stack/free low memory\n");
     print_label("  0x000B8000 - 0x000B8F9F  ");  print_value("VGA text buffer\n");
     print_label("  0x000C0000 - 0x000FFFFF  ");  print_value("BIOS ROM\n");
     print_label("  0x00100000 - 0x0017FFFF  ");  print_value("Kernel bump heap (512 KiB)\n");
-    print_label("  0x00180000 - ??????????  ");  print_value("Extended memory (unused)\n");
     vga_print("\n");
     vga_set_color(VGA_LIGHT_GRAY, VGA_BLACK);
     vga_print("  Ramdisk file contents live in the bump heap; ");

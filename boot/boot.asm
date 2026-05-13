@@ -5,8 +5,12 @@ bits 16
 jmp short boot_start
 nop
 
-KERNEL_OFFSET equ 0x1000
-KERNEL_SECTORS equ 48
+KERNEL_OFFSET equ 0x10000
+KERNEL_LOAD_SEG equ 0x1000
+; Sector count comes from the Makefile (must match kernel.padded.bin size).
+%ifndef KERNEL_SECTORS
+%fatal "KERNEL_SECTORS not defined: assemble boot via Makefile, or: nasm -DKERNEL_SECTORS=N ..."
+%endif
 
 boot_start:
     xor ax, ax
@@ -46,10 +50,10 @@ load_kernel:
     mov si, MSG_LOAD
     call print_rm
 
-    xor ax, ax
+    mov ax, KERNEL_LOAD_SEG
     mov es, ax
-    mov bx, KERNEL_OFFSET
-    mov si, KERNEL_SECTORS  ; sectors to read (24 KB kernel budget)
+    xor bx, bx
+    mov si, KERNEL_SECTORS  ; sectors = padded kernel size / 512 (from Makefile)
     mov ch, 0               ; cylinder
     mov dh, 0               ; head
     mov cl, 2               ; sector (1-based; boot sector is sector 1)

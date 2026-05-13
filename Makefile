@@ -54,8 +54,15 @@ all: $(OS_IMAGE)
 $(BUILD):
 	mkdir -p $(BUILD)
 
-$(BOOT_BIN): $(BOOT_SRC) | $(BUILD)
-	$(ASM) -f bin $< -o $@
+# Boot sector must load every sector of kernel.padded.bin (ceil(bytes/512)).
+# 1.44 MiB floppy: sectors 2..2880 available on tracks after the boot sector (~2879 max).
+$(BOOT_BIN): $(BOOT_SRC) $(KERNEL_PAD) | $(BUILD)
+	@SZ=$$(wc -c < $(KERNEL_PAD) | tr -d ' '); \
+	SECT=$$(( ($$SZ + 511) / 512 )); \
+	if [ $$SECT -gt 2879 ]; then \
+	  echo "Kernel too large for floppy CHS load ($$SECT sectors > 2879)."; exit 1; \
+	fi; \
+	$(ASM) -f bin -DKERNEL_SECTORS=$$SECT $(BOOT_SRC) -o $@
 
 $(ENTRY_OBJ): $(ENTRY_SRC) | $(BUILD)
 	$(ASM) -f elf32 $< -o $@
