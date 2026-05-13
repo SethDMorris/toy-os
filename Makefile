@@ -38,6 +38,7 @@ KERNEL_OBJS = $(patsubst kernel/%.c,$(BUILD)/%.o,$(KERNEL_SRCS))
 BOOT_BIN    = $(BUILD)/boot.bin
 KERNEL_ELF  = $(BUILD)/kernel.elf
 KERNEL_BIN  = $(BUILD)/kernel.bin
+KERNEL_PAD  = $(BUILD)/kernel.padded.bin
 OS_IMAGE    = $(BUILD)/os.img
 
 # ── Targets ──────────────────────────────────────────────────────────
@@ -64,8 +65,19 @@ $(KERNEL_ELF): $(ENTRY_OBJ) $(KERNEL_OBJS)
 $(KERNEL_BIN): $(KERNEL_ELF)
 	$(OBJCOPY) -O binary $< $@
 
-$(OS_IMAGE): $(BOOT_BIN) $(KERNEL_BIN)
+# Pad kernel binary to a sector boundary (whole 512-byte blocks on the floppy).
+$(KERNEL_PAD): $(KERNEL_BIN)
+	dd if=$< of=$@ bs=512 conv=sync
+
+# Bootloader reads 48 sectors (24 KiB) starting at sector 2 (byte 512). The image
+# must be at least 512 + 48*512 bytes or SeaBIOS can hang at "Booting from Floppy...".
+$(OS_IMAGE): $(BOOT_BIN) $(KERNEL_PAD)
 	cat $^ > $@
+	@SZ=$$(wc -c < $@ | awk '{print $$1}'); \
+	MIN=25088; \
+	if [ $$SZ -lt $$MIN ]; then \
+	  dd if=/dev/zero bs=1 count=$$((MIN - $$SZ)) >> $@; \
+	fi
 
 run: $(OS_IMAGE)
 	qemu-system-i386 -drive file=$(OS_IMAGE),format=raw,if=floppy -boot order=a
