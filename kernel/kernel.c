@@ -5,6 +5,7 @@
 #include "ports.h"
 #include "kmalloc.h"
 #include "ramdisk.h"
+#include "minivm.h"
 
 #define CMD_BUF_SIZE 256
 
@@ -129,6 +130,8 @@ static void cmd_help(void) {
     print_label("  write    ");  print_value("Create/overwrite (usage: write <name> <text>)\n");
     print_label("            ");  print_value("  <name> is one word — no spaces in filenames.\n");
     print_label("  rm       ");  print_value("Remove a ramdisk file (usage: rm <name>)\n");
+    print_label("  compile  ");  print_value("Text bytecode -> binary (usage: compile <src> <dst>)\n");
+    print_label("  run      ");  print_value("Run a bytecode file (usage: run <name>)\n");
     print_label("  color    ");  print_value("Change text color (usage: color <0-15>)\n");
     print_label("  fortune  ");  print_value("Random computing quote\n");
     print_label("  hello    ");  print_value("A friendly greeting\n");
@@ -362,6 +365,125 @@ static void cmd_rm(const char *name) {
     vga_print("\n");
 }
 
+#define BC_FILE_MAX 32
+#define BC_BIN_MAX  512
+
+static int parse_two_names(const char *args, char *a, char *b, size_t max) {
+    const char *p = skip_ws(args);
+    if (!*p)
+        return -1;
+    const char *s = p;
+    while (*p && *p != ' ')
+        p++;
+    size_t la = (size_t)(p - s);
+    if (la == 0 || la >= max)
+        return -1;
+    memcpy(a, s, la);
+    a[la] = '\0';
+    p = skip_ws(p);
+    if (!*p)
+        return -1;
+    s = p;
+    while (*p && *p != ' ')
+        p++;
+    size_t lb = (size_t)(p - s);
+    if (lb == 0 || lb >= max)
+        return -1;
+    memcpy(b, s, lb);
+    b[lb] = '\0';
+    if (*skip_ws(p))
+        return -2;
+    return 0;
+}
+
+static void cmd_run(const char *name) {
+    if (!name || !*name) {
+        vga_print("\n  Usage: run <bytecode-file>\n");
+        return;
+    }
+    const uint8_t *code;
+    size_t len;
+    if (ramdisk_get(name, &code, &len) != 0) {
+        vga_set_color(VGA_LIGHT_RED, VGA_BLACK);
+        vga_print("\n  run: no such file: ");
+        vga_print(name);
+        vga_putchar('\n');
+        vga_set_color(VGA_LIGHT_GRAY, VGA_BLACK);
+        return;
+    }
+    int e = minivm_run(code, len);
+    if (e != 0) {
+        vga_set_color(VGA_LIGHT_RED, VGA_BLACK);
+        vga_print("\n  run: VM error ");
+        print_num(e);
+        vga_print(" (stack/opcode)\n");
+        vga_set_color(VGA_LIGHT_GRAY, VGA_BLACK);
+    }
+}
+
+static void cmd_compile(const char *args) {
+    char in[BC_FILE_MAX];
+    char out[BC_FILE_MAX];
+    int pr = parse_two_names(args, in, out, sizeof(in));
+    if (pr != 0) {
+        vga_print("\n  Usage: compile <src-text> <dst-binary>\n");
+        vga_print("  Lines: push <n> | add | sub | mul | print | halt | # comment\n");
+        if (pr == -2) {
+            vga_set_color(VGA_LIGHT_RED, VGA_BLACK);
+            vga_print("  (extra text after destination name)\n");
+            vga_set_color(VGA_LIGHT_GRAY, VGA_BLACK);
+        }
+        return;
+    }
+    const uint8_t *srcb;
+    size_t srclen;
+    if (ramdisk_get(in, &srcb, &srclen) != 0) {
+        vga_set_color(VGA_LIGHT_RED, VGA_BLACK);
+        vga_print("\n  compile: no such file: ");
+        vga_print(in);
+        vga_putchar('\n');
+        vga_set_color(VGA_LIGHT_GRAY, VGA_BLACK);
+        return;
+    }
+    uint8_t bin[BC_BIN_MAX];
+    size_t binlen = 0;
+    int cr = minivm_compile((const char *)srcb, srclen, bin, sizeof(bin), &binlen);
+    if (cr != 0) {
+        vga_set_color(VGA_LIGHT_RED, VGA_BLACK);
+        vga_print("\n  compile: failed (code ");
+        print_num(cr);
+        vga_print(")\n");
+        vga_set_color(VGA_LIGHT_GRAY, VGA_BLACK);
+        return;
+    }
+    int wr = ramdisk_write(out, bin, binlen);
+    if (wr == -2) {
+        vga_set_color(VGA_LIGHT_RED, VGA_BLACK);
+        vga_print("\n  compile: ramdisk full\n");
+        vga_set_color(VGA_LIGHT_GRAY, VGA_BLACK);
+    } else if (wr == -3) {
+        vga_set_color(VGA_LIGHT_RED, VGA_BLACK);
+        vga_print("\n  compile: out of heap\n");
+        vga_set_color(VGA_LIGHT_GRAY, VGA_BLACK);
+    } else if (wr != 0) {
+        vga_set_color(VGA_LIGHT_RED, VGA_BLACK);
+        vga_print("\n  compile: invalid output name\n");
+        vga_set_color(VGA_LIGHT_GRAY, VGA_BLACK);
+    } else {
+        vga_print("\n  Compiled ");
+        vga_set_color(VGA_WHITE, VGA_BLACK);
+        vga_print(in);
+        vga_set_color(VGA_LIGHT_GRAY, VGA_BLACK);
+        vga_print(" -> ");
+        vga_set_color(VGA_WHITE, VGA_BLACK);
+        vga_print(out);
+        vga_set_color(VGA_LIGHT_GRAY, VGA_BLACK);
+        vga_print(" (");
+        print_num((int)binlen);
+        vga_print(" bytes)\n");
+    }
+}
+
 static void cmd_color(const char *args) {
     if (!args || !*args) {
         vga_print("\n  Usage: color <0-15>\n");
@@ -457,6 +579,10 @@ static void execute(const char *cmd) {
     else if (strcmp(cmd, "write")   == 0) cmd_write("");
     else if (strncmp(cmd, "rm ", 3) == 0) cmd_rm(skip_ws(cmd + 3));
     else if (strcmp(cmd, "rm")      == 0) cmd_rm("");
+    else if (strncmp(cmd, "compile ", 8) == 0) cmd_compile(skip_ws(cmd + 8));
+    else if (strcmp(cmd, "compile") == 0) cmd_compile("");
+    else if (strncmp(cmd, "run ", 4) == 0) cmd_run(skip_ws(cmd + 4));
+    else if (strcmp(cmd, "run")     == 0) cmd_run("");
     else if (strcmp(cmd, "fortune") == 0) cmd_fortune();
     else if (strcmp(cmd, "hello")   == 0) cmd_hello();
     else if (strcmp(cmd, "panic")   == 0) cmd_panic();
