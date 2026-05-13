@@ -6,6 +6,7 @@ jmp short boot_start
 nop
 
 KERNEL_OFFSET equ 0x1000
+KERNEL_SECTORS equ 48
 
 boot_start:
     xor ax, ax
@@ -45,15 +46,33 @@ load_kernel:
     mov si, MSG_LOAD
     call print_rm
 
+    xor ax, ax
+    mov es, ax
     mov bx, KERNEL_OFFSET
+    mov si, KERNEL_SECTORS  ; sectors to read (24 KB kernel budget)
+    mov ch, 0               ; cylinder
+    mov dh, 0               ; head
+    mov cl, 2               ; sector (1-based; boot sector is sector 1)
+
+.read_next:
     mov ah, 0x02            ; BIOS read sectors
-    mov al, 48              ; sectors to read (24 KB kernel budget)
-    mov ch, 0               ; cylinder 0
-    mov cl, 2               ; start at sector 2
-    mov dh, 0               ; head 0
+    mov al, 1               ; read exactly one sector; do not cross tracks
     mov dl, [BOOT_DRIVE]
     int 0x13
     jc .disk_err
+
+    add bx, 512
+    inc cl
+    cmp cl, 19              ; 18 sectors per track, next sector would be 19
+    jne .same_track
+    mov cl, 1
+    xor dh, 1               ; switch head 0 <-> 1
+    jnz .same_track
+    inc ch                  ; after head 1 wraps to 0, advance cylinder
+
+.same_track:
+    dec si
+    jnz .read_next
     ret
 
 .disk_err:

@@ -20,7 +20,7 @@ OBJCOPY = $(CROSS)objcopy
 ASM     = nasm
 
 CFLAGS  = $(ARCH_FLAG) -ffreestanding -fno-pie -fno-stack-protector \
-          -Wall -Wextra -O2 -Ikernel
+          -Wall -Wextra -O2 -march=i386 -mno-sse -mno-sse2 -mno-mmx -msoft-float -Ikernel
 LDFLAGS = -m elf_i386
 
 BUILD   = build
