@@ -124,7 +124,7 @@ int minivm_compile(const char *src, size_t srclen,
     size_t w = 0;
 
     while (p < end) {
-        while (p < end && (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n'))
+        while (p < end && (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n' || *p == ';'))
             p++;
         if (p >= end)
             break;

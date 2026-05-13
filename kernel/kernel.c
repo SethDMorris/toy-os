@@ -428,6 +428,7 @@ static void cmd_compile(const char *args) {
     if (pr != 0) {
         vga_print("\n  Usage: compile <src-text> <dst-binary>\n");
         vga_print("  Lines: push <n> | add | sub | mul | print | halt | # comment\n");
+        vga_print("  Use newline or ';' between statements (so one write line can hold a program).\n");
         if (pr == -2) {
             vga_set_color(VGA_LIGHT_RED, VGA_BLACK);
             vga_print("  (extra text after destination name)\n");

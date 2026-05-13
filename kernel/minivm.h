@@ -15,12 +15,8 @@
  *   0x04 MUL      — pop b, pop a, push a*b (32-bit wrap)
  *   0x05 PRINT    — pop one value, print as signed decimal + newline
  *
- * Text source (for compile): one statement per line, # comments, blank lines ok.
- *   push 10
- *   push 3
- *   add
- *   print
- *   halt
+ * Text source (for compile): statements separated by newline or ';', # comments.
+ *   push 10 ; push 3 ; add ; print ; halt
  */
 
 int minivm_run(const uint8_t *code, size_t len);
