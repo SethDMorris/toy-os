@@ -82,11 +82,12 @@ $(OS_IMAGE): $(BOOT_BIN) $(KERNEL_PAD)
 	  dd if=/dev/zero bs=$$(($(FLOPPY_SIZE) - $$SZ)) count=1 >> $@; \
 	fi
 
-# Partitionless FAT16 image (mkfs.vfat -C). Size is KiB (8192 = 8 MiB).
+# Partitionless FAT16 image (mkfs.vfat -C). Last arg is 1024-byte blocks (see mkfs.vfat --help).
+# 8192 blocks (8 MiB) is rejected by dosfstools 4.x as too small for FAT16; 16384 = 16 MiB.
 $(HDD_IMG): | $(BUILD)
 	@if command -v mkfs.vfat >/dev/null 2>&1; then \
 	  rm -f $@; \
-	  mkfs.vfat -F 16 -C $@ 8192; \
+	  mkfs.vfat -F 16 -C $@ 16384; \
 	else \
 	  echo "Missing mkfs.vfat. Install dosfstools, or run: make hdd-docker"; \
 	  exit 1; \
@@ -96,7 +97,7 @@ hdd-img: $(HDD_IMG)
 
 hdd-docker: | $(BUILD)
 	docker run --rm -v "$$(pwd)":/os -w /os ubuntu:22.04 bash -lc \
-	  'apt-get update -qq && apt-get install -y -qq dosfstools && rm -f $(HDD_IMG) && mkfs.vfat -F 16 -C $(HDD_IMG) 8192'
+	  'apt-get update -qq && apt-get install -y -qq dosfstools && rm -f $(HDD_IMG) && mkfs.vfat -F 16 -C $(HDD_IMG) 16384'
 
 run: $(OS_IMAGE) $(HDD_IMG)
 	qemu-system-i386 \
