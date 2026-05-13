@@ -6,6 +6,8 @@
 #include "kmalloc.h"
 #include "ramdisk.h"
 #include "minivm.h"
+#include "ide.h"
+#include "fat16.h"
 
 #define CMD_BUF_SIZE 256
 
@@ -74,6 +76,21 @@ static const char *skip_ws(const char *s) {
     return s;
 }
 
+static int parse_u32_dec(const char *s, uint32_t *out) {
+    s = skip_ws(s);
+    if (*s < '0' || *s > '9')
+        return -1;
+    uint32_t v = 0;
+    while (*s >= '0' && *s <= '9') {
+        v = v * 10u + (uint32_t)(*s - '0');
+        s++;
+        if (v > 0x0FFFFFF0u)
+            return -1;
+    }
+    *out = v;
+    return 0;
+}
+
 /* ── Banner ────────────────────────────────────────────────────────── */
 
 static void print_banner(void) {
@@ -132,6 +149,10 @@ static void cmd_help(void) {
     print_label("  rm       ");  print_value("Remove a ramdisk file (usage: rm <name>)\n");
     print_label("  compile  ");  print_value("Text bytecode -> binary (usage: compile <src> <dst>)\n");
     print_label("  run      ");  print_value("Run a bytecode file (usage: run <name>)\n");
+    print_label("  diskdump ");  print_value("Hex dump one IDE sector (usage: diskdump <lba>)\n");
+    print_label("  fatmount ");  print_value("Mount FAT16 on IDE disk (LBA0 volume)\n");
+    print_label("  fatls    ");  print_value("List FAT16 root (after fatmount)\n");
+    print_label("  fatcat   ");  print_value("Read FAT file (usage: fatcat README.TXT)\n");
     print_label("  color    ");  print_value("Change text color (usage: color <0-15>)\n");
     print_label("  fortune  ");  print_value("Random computing quote\n");
     print_label("  hello    ");  print_value("A friendly greeting\n");
@@ -553,6 +574,129 @@ static void cmd_panic(void) {
     print_banner();
 }
 
+static void byte_hex(uint8_t b) {
+    static const char hd[] = "0123456789ABCDEF";
+    vga_putchar(hd[b >> 4]);
+    vga_putchar(hd[b & 0x0F]);
+}
+
+static void cmd_diskdump(const char *args) {
+    uint32_t lba;
+
+    if (parse_u32_dec(args, &lba) != 0) {
+        vga_print("\n  Usage: diskdump <lba>\n");
+        return;
+    }
+    uint8_t sec[512];
+    if (ide_read_sector(lba, sec) != 0) {
+        vga_set_color(VGA_LIGHT_RED, VGA_BLACK);
+        vga_print("\n  diskdump: IDE read failed\n");
+        vga_set_color(VGA_LIGHT_GRAY, VGA_BLACK);
+        return;
+    }
+    vga_putchar('\n');
+    for (int row = 0; row < 32; row++) {
+        vga_set_color(VGA_LIGHT_CYAN, VGA_BLACK);
+        vga_print("  ");
+        char aoff[12];
+        uint_to_hex(lba * 512u + (uint32_t)(row * 16), aoff);
+        vga_print(aoff);
+        vga_print("  ");
+        vga_set_color(VGA_LIGHT_GRAY, VGA_BLACK);
+        for (int c = 0; c < 16; c++) {
+            byte_hex(sec[row * 16 + c]);
+            vga_putchar(' ');
+        }
+        vga_print(" ");
+        vga_set_color(VGA_WHITE, VGA_BLACK);
+        for (int c = 0; c < 16; c++) {
+            uint8_t b = sec[row * 16 + c];
+            if (b >= 32 && b < 127)
+                vga_putchar((char)b);
+            else
+                vga_putchar('.');
+        }
+        vga_putchar('\n');
+    }
+    vga_set_color(VGA_LIGHT_GRAY, VGA_BLACK);
+}
+
+static void cmd_fatmount(void) {
+    int r = fat16_mount();
+    if (r != 0) {
+        vga_set_color(VGA_LIGHT_RED, VGA_BLACK);
+        vga_print("\n  fatmount failed (");
+        print_num(r);
+        vga_print(")\n");
+        vga_set_color(VGA_LIGHT_GRAY, VGA_BLACK);
+        return;
+    }
+    vga_print("\n  FAT16 volume mounted (partitionless image, LBA 0 = VBR).\n");
+}
+
+static void fatls_cb(const char *name83, uint32_t size, void *ctx) {
+    (void)ctx;
+    vga_print("    ");
+    vga_set_color(VGA_WHITE, VGA_BLACK);
+    vga_print(name83);
+    vga_set_color(VGA_LIGHT_GRAY, VGA_BLACK);
+    vga_print("  ");
+    print_uint32(size);
+    vga_print(" bytes\n");
+}
+
+static void cmd_fatls(void) {
+    if (!fat16_mounted()) {
+        vga_print("\n  Type fatmount first.\n");
+        return;
+    }
+    vga_putchar('\n');
+    vga_set_color(VGA_YELLOW, VGA_BLACK);
+    vga_print("  FAT16 root:\n");
+    vga_set_color(VGA_LIGHT_GRAY, VGA_BLACK);
+    fat16_list_root(fatls_cb, NULL);
+    vga_putchar('\n');
+}
+
+static void cmd_fatcat(const char *name) {
+    static uint8_t buf[4096];
+
+    if (!name || !*name) {
+        vga_print("\n  Usage: fatcat <8.3-name>   e.g. fatcat README.TXT\n");
+        return;
+    }
+    if (!fat16_mounted()) {
+        vga_print("\n  Type fatmount first.\n");
+        return;
+    }
+    int n = fat16_read_file(name, buf, sizeof(buf) - 1);
+    if (n < 0) {
+        vga_set_color(VGA_LIGHT_RED, VGA_BLACK);
+        vga_print("\n  fatcat: error ");
+        print_num(n);
+        vga_putchar('\n');
+        vga_set_color(VGA_LIGHT_GRAY, VGA_BLACK);
+        return;
+    }
+    buf[n] = '\0';
+    vga_putchar('\n');
+    vga_set_color(VGA_WHITE, VGA_BLACK);
+    for (int i = 0; i < n; i++) {
+        char c = (char)buf[i];
+        if (c == '\n')
+            vga_putchar('\n');
+        else if (c >= 32 && c < 127)
+            vga_putchar(c);
+        else if (c == '\r')
+            ;
+        else
+            vga_putchar('.');
+    }
+    if (n == 0 || buf[n - 1] != '\n')
+        vga_putchar('\n');
+    vga_set_color(VGA_LIGHT_GRAY, VGA_BLACK);
+}
+
 static void cmd_reboot(void) {
     vga_print("\n  Rebooting...\n");
     uint8_t s;
@@ -584,6 +728,12 @@ static void execute(const char *cmd) {
     else if (strcmp(cmd, "compile") == 0) cmd_compile("");
     else if (strncmp(cmd, "run ", 4) == 0) cmd_run(skip_ws(cmd + 4));
     else if (strcmp(cmd, "run")     == 0) cmd_run("");
+    else if (strncmp(cmd, "diskdump ", 9) == 0) cmd_diskdump(skip_ws(cmd + 9));
+    else if (strcmp(cmd, "diskdump") == 0) cmd_diskdump("");
+    else if (strcmp(cmd, "fatmount") == 0) cmd_fatmount();
+    else if (strcmp(cmd, "fatls")   == 0) cmd_fatls();
+    else if (strncmp(cmd, "fatcat ", 7) == 0) cmd_fatcat(skip_ws(cmd + 7));
+    else if (strcmp(cmd, "fatcat")  == 0) cmd_fatcat("");
     else if (strcmp(cmd, "fortune") == 0) cmd_fortune();
     else if (strcmp(cmd, "hello")   == 0) cmd_hello();
     else if (strcmp(cmd, "panic")   == 0) cmd_panic();
@@ -608,6 +758,7 @@ void kernel_main(void) {
     idt_init();
     kmalloc_init();
     ramdisk_init();
+    ide_init();
 
     print_banner();
     print_prompt();

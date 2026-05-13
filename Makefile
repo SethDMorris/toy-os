@@ -31,7 +31,7 @@ BOOT_SRC    = boot/boot.asm
 ENTRY_SRC   = kernel/entry.asm
 KERNEL_SRCS = kernel/kernel.c kernel/vga.c kernel/keyboard.c \
               kernel/idt.c kernel/string.c kernel/kmalloc.c kernel/ramdisk.c \
-              kernel/minivm.c
+              kernel/minivm.c kernel/ide.c kernel/fat16.c
 
 ENTRY_OBJ   = $(BUILD)/entry.o
 KERNEL_OBJS = $(patsubst kernel/%.c,$(BUILD)/%.o,$(KERNEL_SRCS))
@@ -41,12 +41,13 @@ KERNEL_ELF  = $(BUILD)/kernel.elf
 KERNEL_BIN  = $(BUILD)/kernel.bin
 KERNEL_PAD  = $(BUILD)/kernel.padded.bin
 OS_IMAGE    = $(BUILD)/os.img
+HDD_IMG     = $(BUILD)/hdd.img
 # Standard 1.44 MiB floppy size (80 cyl * 2 heads * 18 sectors * 512 bytes).
 FLOPPY_SIZE = 1474560
 
 # ── Targets ──────────────────────────────────────────────────────────
 
-.PHONY: all run debug clean docker
+.PHONY: all run debug clean docker hdd-img hdd-docker
 
 all: $(OS_IMAGE)
 
@@ -81,11 +82,32 @@ $(OS_IMAGE): $(BOOT_BIN) $(KERNEL_PAD)
 	  dd if=/dev/zero bs=$$(($(FLOPPY_SIZE) - $$SZ)) count=1 >> $@; \
 	fi
 
-run: $(OS_IMAGE)
-	qemu-system-i386 -drive file=$(OS_IMAGE),format=raw,if=floppy -boot order=a
+# Partitionless FAT16 image (mkfs.vfat -C). Size is KiB (8192 = 8 MiB).
+$(HDD_IMG): | $(BUILD)
+	@if command -v mkfs.vfat >/dev/null 2>&1; then \
+	  rm -f $@; \
+	  mkfs.vfat -F 16 -C $@ 8192; \
+	else \
+	  echo "Missing mkfs.vfat. Install dosfstools, or run: make hdd-docker"; \
+	  exit 1; \
+	fi
 
-debug: $(OS_IMAGE)
-	qemu-system-i386 -drive file=$(OS_IMAGE),format=raw,if=floppy -boot order=a -s -S -monitor stdio
+hdd-img: $(HDD_IMG)
+
+hdd-docker: | $(BUILD)
+	docker run --rm -v "$$(pwd)":/os -w /os ubuntu:22.04 bash -lc \
+	  'apt-get update -qq && apt-get install -y -qq dosfstools && rm -f $(HDD_IMG) && mkfs.vfat -F 16 -C $(HDD_IMG) 8192'
+
+run: $(OS_IMAGE) $(HDD_IMG)
+	qemu-system-i386 \
+	  -drive file=$(OS_IMAGE),format=raw,if=floppy -boot order=a \
+	  -drive file=$(HDD_IMG),format=raw,if=ide,index=0,media=disk,cache=unsafe
+
+debug: $(OS_IMAGE) $(HDD_IMG)
+	qemu-system-i386 \
+	  -drive file=$(OS_IMAGE),format=raw,if=floppy -boot order=a \
+	  -drive file=$(HDD_IMG),format=raw,if=ide,index=0,media=disk,cache=unsafe \
+	  -s -S -monitor stdio
 
 docker:
 	docker build -t minios-builder .
