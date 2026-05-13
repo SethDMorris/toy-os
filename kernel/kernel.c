@@ -699,6 +699,7 @@ static void cmd_fatcat(const char *name) {
 
 static void cmd_reboot(void) {
     vga_print("\n  Rebooting...\n");
+    __asm__ volatile("cli");
     uint8_t s;
     do { s = inb(0x64); } while (s & 0x02);
     outb(0x64, 0xFE);
