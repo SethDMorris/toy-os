@@ -68,10 +68,10 @@ $(OS_IMAGE): $(BOOT_BIN) $(KERNEL_BIN)
 	cat $^ > $@
 
 run: $(OS_IMAGE)
-	qemu-system-i386 -fda $<
+	qemu-system-i386 -drive file=$(OS_IMAGE),format=raw,if=floppy -boot order=a
 
 debug: $(OS_IMAGE)
-	qemu-system-i386 -fda $< -s -S -monitor stdio
+	qemu-system-i386 -drive file=$(OS_IMAGE),format=raw,if=floppy -boot order=a -s -S -monitor stdio
 
 docker:
 	docker build -t minios-builder .
