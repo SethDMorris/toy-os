@@ -145,7 +145,7 @@ static void cmd_help(void) {
     print_label("  ls       ");  print_value("List ramdisk files\n");
     print_label("  cat      ");  print_value("Print a ramdisk file (usage: cat <name>)\n");
     print_label("  write    ");  print_value("Create/overwrite (usage: write <name> <text>)\n");
-    print_label("            ");  print_value("  <name> is one word — no spaces in filenames.\n");
+    print_label("            ");  print_value("  <name> is one word - no spaces in filenames.\n");
     print_label("  rm       ");  print_value("Remove a ramdisk file (usage: rm <name>)\n");
     print_label("  compile  ");  print_value("Text bytecode -> binary (usage: compile <src> <dst>)\n");
     print_label("  run      ");  print_value("Run a bytecode file (usage: run <name>)\n");
