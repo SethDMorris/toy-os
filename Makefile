@@ -30,7 +30,7 @@ BUILD   = build
 BOOT_SRC    = boot/boot.asm
 ENTRY_SRC   = kernel/entry.asm
 KERNEL_SRCS = kernel/kernel.c kernel/vga.c kernel/keyboard.c \
-              kernel/idt.c kernel/string.c
+              kernel/idt.c kernel/string.c kernel/kmalloc.c kernel/ramdisk.c
 
 ENTRY_OBJ   = $(BUILD)/entry.o
 KERNEL_OBJS = $(patsubst kernel/%.c,$(BUILD)/%.o,$(KERNEL_SRCS))

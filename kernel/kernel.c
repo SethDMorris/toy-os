@@ -3,6 +3,8 @@
 #include "idt.h"
 #include "string.h"
 #include "ports.h"
+#include "kmalloc.h"
+#include "ramdisk.h"
 
 #define CMD_BUF_SIZE 256
 
@@ -59,6 +61,18 @@ static void print_num(int n) {
     vga_print(buf);
 }
 
+static void print_uint32(uint32_t n) {
+    char buf[12];
+    int_to_str((int)n, buf);
+    vga_print(buf);
+}
+
+static const char *skip_ws(const char *s) {
+    while (*s == ' ')
+        s++;
+    return s;
+}
+
 /* ── Banner ────────────────────────────────────────────────────────── */
 
 static void print_banner(void) {
@@ -69,7 +83,7 @@ static void print_banner(void) {
     vga_print("\n  ");
 
     vga_set_color(VGA_WHITE, VGA_BLUE);
-    vga_print("                 Welcome to miniOS v0.1                 ");
+    vga_print("                 Welcome to miniOS v0.2                 ");
     vga_set_color(VGA_LIGHT_CYAN, VGA_BLACK);
     vga_print("\n  ");
 
@@ -109,6 +123,11 @@ static void cmd_help(void) {
     print_label("  uptime   ");  print_value("Seconds since boot\n");
     print_label("  date     ");  print_value("Show date/time from CMOS RTC\n");
     print_label("  mem      ");  print_value("Show memory layout\n");
+    print_label("  heap     ");  print_value("Bump allocator stats (extended memory)\n");
+    print_label("  ls       ");  print_value("List ramdisk files\n");
+    print_label("  cat      ");  print_value("Print a ramdisk file (usage: cat <name>)\n");
+    print_label("  write    ");  print_value("Create/overwrite file (usage: write <name> <text>)\n");
+    print_label("  rm       ");  print_value("Remove a ramdisk file (usage: rm <name>)\n");
     print_label("  color    ");  print_value("Change text color (usage: color <0-15>)\n");
     print_label("  fortune  ");  print_value("Random computing quote\n");
     print_label("  hello    ");  print_value("A friendly greeting\n");
@@ -132,12 +151,14 @@ static void cmd_info(void) {
     vga_set_color(VGA_YELLOW, VGA_BLACK);
     vga_print("\n  System Information\n\n");
 
-    print_label("  OS           ");  print_value("miniOS v0.1\n");
+    print_label("  OS           ");  print_value("miniOS v0.2\n");
     print_label("  Architecture ");  print_value("i386 (32-bit protected mode)\n");
     print_label("  Display      ");  print_value("VGA text mode 80x25\n");
     print_label("  Keyboard     ");  print_value("PS/2 (IRQ 1, scancode set 1)\n");
     print_label("  Timer        ");  print_value("PIT channel 0 @ ~18.2 Hz\n");
     print_label("  Boot method  ");  print_value("Custom MBR bootloader\n");
+    print_label("  Heap         ");  print_value("Bump allocator @ 1 MiB (512 KiB)\n");
+    print_label("  Ramdisk      ");  print_value("In-memory flat FS (max 32 files)\n");
     vga_print("\n");
     vga_set_color(VGA_LIGHT_GRAY, VGA_BLACK);
 }
@@ -200,9 +221,144 @@ static void cmd_mem(void) {
     print_label("  0x00010000 - 0x0008FFFF  ");  print_value("Stack (grows down from 0x90000)\n");
     print_label("  0x000B8000 - 0x000B8F9F  ");  print_value("VGA text buffer\n");
     print_label("  0x000C0000 - 0x000FFFFF  ");  print_value("BIOS ROM\n");
-    print_label("  0x00100000 - ??????????  ");  print_value("Extended memory (free)\n");
+    print_label("  0x00100000 - 0x0017FFFF  ");  print_value("Kernel bump heap (512 KiB)\n");
+    print_label("  0x00180000 - ??????????  ");  print_value("Extended memory (unused)\n");
     vga_print("\n");
     vga_set_color(VGA_LIGHT_GRAY, VGA_BLACK);
+    vga_print("  Ramdisk file contents live in the bump heap; ");
+    vga_print("'rm' frees the name slot but does not reclaim bytes.\n\n");
+}
+
+static void cmd_heap(void) {
+    vga_set_color(VGA_YELLOW, VGA_BLACK);
+    vga_print("\n  Bump heap\n\n");
+
+    print_label("  Base      ");
+    print_value("0x00100000\n");
+    print_label("  Used      ");
+    print_uint32((uint32_t)kmalloc_used());
+    vga_print(" bytes\n");
+    print_label("  Capacity  ");
+    print_uint32((uint32_t)kmalloc_capacity());
+    vga_print(" bytes\n");
+    vga_print("\n");
+    vga_set_color(VGA_LIGHT_GRAY, VGA_BLACK);
+}
+
+static int ls_count;
+
+static void ls_cb(const char *name, size_t size, void *ctx) {
+    (void)ctx;
+    ls_count++;
+    vga_print("    ");
+    vga_set_color(VGA_WHITE, VGA_BLACK);
+    vga_print(name);
+    vga_set_color(VGA_LIGHT_GRAY, VGA_BLACK);
+    vga_print("  ");
+    print_num((int)size);
+    vga_print(" bytes\n");
+}
+
+static void cmd_ls(void) {
+    vga_putchar('\n');
+    vga_set_color(VGA_YELLOW, VGA_BLACK);
+    vga_print("  Ramdisk files\n");
+    vga_set_color(VGA_LIGHT_GRAY, VGA_BLACK);
+    ls_count = 0;
+    ramdisk_foreach(ls_cb, NULL);
+    if (ls_count == 0)
+        vga_print("  (empty - use write <name> <text>)\n");
+    vga_putchar('\n');
+}
+
+static void cmd_cat(const char *name) {
+    const uint8_t *data;
+    size_t len;
+
+    if (!name || !*name) {
+        vga_print("\n  Usage: cat <name>\n");
+        return;
+    }
+    if (ramdisk_get(name, &data, &len) != 0) {
+        vga_set_color(VGA_LIGHT_RED, VGA_BLACK);
+        vga_print("\n  cat: no such file: ");
+        vga_print(name);
+        vga_putchar('\n');
+        vga_set_color(VGA_LIGHT_GRAY, VGA_BLACK);
+        return;
+    }
+    vga_putchar('\n');
+    vga_set_color(VGA_WHITE, VGA_BLACK);
+    for (size_t i = 0; i < len; i++)
+        vga_putchar((char)data[i]);
+    if (len == 0 || data[len - 1] != '\n')
+        vga_putchar('\n');
+    vga_set_color(VGA_LIGHT_GRAY, VGA_BLACK);
+}
+
+static void cmd_write(const char *args) {
+    if (!args || !*args) {
+        vga_print("\n  Usage: write <name> <text>\n");
+        return;
+    }
+    const char *p = args;
+    while (*p && *p != ' ')
+        p++;
+    if (*p == '\0') {
+        vga_print("\n  Usage: write <name> <text>\n");
+        return;
+    }
+    size_t name_len = (size_t)(p - args);
+    if (name_len >= 32) {
+        vga_set_color(VGA_LIGHT_RED, VGA_BLACK);
+        vga_print("\n  write: name too long (max 31 chars)\n");
+        vga_set_color(VGA_LIGHT_GRAY, VGA_BLACK);
+        return;
+    }
+    char name[32];
+    memcpy(name, args, name_len);
+    name[name_len] = '\0';
+    p = skip_ws(p);
+    int rc = ramdisk_write(name, p, strlen(p));
+    if (rc == -1) {
+        vga_set_color(VGA_LIGHT_RED, VGA_BLACK);
+        vga_print("\n  write: invalid name (no spaces or slashes)\n");
+        vga_set_color(VGA_LIGHT_GRAY, VGA_BLACK);
+    } else if (rc == -2) {
+        vga_set_color(VGA_LIGHT_RED, VGA_BLACK);
+        vga_print("\n  write: ramdisk full (32 files)\n");
+        vga_set_color(VGA_LIGHT_GRAY, VGA_BLACK);
+    } else if (rc == -3) {
+        vga_set_color(VGA_LIGHT_RED, VGA_BLACK);
+        vga_print("\n  write: out of heap\n");
+        vga_set_color(VGA_LIGHT_GRAY, VGA_BLACK);
+    } else {
+        vga_print("\n  Wrote ");
+        vga_set_color(VGA_WHITE, VGA_BLACK);
+        vga_print(name);
+        vga_set_color(VGA_LIGHT_GRAY, VGA_BLACK);
+        vga_print("\n");
+    }
+}
+
+static void cmd_rm(const char *name) {
+    if (!name || !*name) {
+        vga_print("\n  Usage: rm <name>\n");
+        return;
+    }
+    if (ramdisk_rm(name) != 0) {
+        vga_set_color(VGA_LIGHT_RED, VGA_BLACK);
+        vga_print("\n  rm: no such file: ");
+        vga_print(name);
+        vga_putchar('\n');
+        vga_set_color(VGA_LIGHT_GRAY, VGA_BLACK);
+        return;
+    }
+    vga_print("\n  Removed ");
+    vga_set_color(VGA_WHITE, VGA_BLACK);
+    vga_print(name);
+    vga_set_color(VGA_LIGHT_GRAY, VGA_BLACK);
+    vga_print("\n");
 }
 
 static void cmd_color(const char *args) {
@@ -292,6 +448,14 @@ static void execute(const char *cmd) {
     else if (strcmp(cmd, "uptime")  == 0) cmd_uptime();
     else if (strcmp(cmd, "date")    == 0) cmd_date();
     else if (strcmp(cmd, "mem")     == 0) cmd_mem();
+    else if (strcmp(cmd, "heap")    == 0) cmd_heap();
+    else if (strcmp(cmd, "ls")      == 0) cmd_ls();
+    else if (strncmp(cmd, "cat ", 4) == 0) cmd_cat(skip_ws(cmd + 4));
+    else if (strcmp(cmd, "cat")     == 0) cmd_cat("");
+    else if (strncmp(cmd, "write ", 6) == 0) cmd_write(skip_ws(cmd + 6));
+    else if (strcmp(cmd, "write")   == 0) cmd_write("");
+    else if (strncmp(cmd, "rm ", 3) == 0) cmd_rm(skip_ws(cmd + 3));
+    else if (strcmp(cmd, "rm")      == 0) cmd_rm("");
     else if (strcmp(cmd, "fortune") == 0) cmd_fortune();
     else if (strcmp(cmd, "hello")   == 0) cmd_hello();
     else if (strcmp(cmd, "panic")   == 0) cmd_panic();
@@ -314,6 +478,8 @@ static void execute(const char *cmd) {
 void kernel_main(void) {
     vga_init();
     idt_init();
+    kmalloc_init();
+    ramdisk_init();
 
     print_banner();
     print_prompt();

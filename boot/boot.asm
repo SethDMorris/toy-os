@@ -43,7 +43,7 @@ load_kernel:
 
     mov bx, KERNEL_OFFSET
     mov ah, 0x02            ; BIOS read sectors
-    mov al, 20              ; sectors to read (10 KB)
+    mov al, 48              ; sectors to read (24 KB kernel budget)
     mov ch, 0               ; cylinder 0
     mov cl, 2               ; start at sector 2
     mov dh, 0               ; head 0
