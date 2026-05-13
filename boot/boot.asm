@@ -1,6 +1,10 @@
 [org 0x7c00]
 bits 16
 
+; SeaBIOS / PC BIOS expect byte 0 to be a short jump (0xEB) on floppy boot sectors.
+jmp short boot_start
+nop
+
 KERNEL_OFFSET equ 0x1000
 
 boot_start:

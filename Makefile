@@ -40,6 +40,8 @@ KERNEL_ELF  = $(BUILD)/kernel.elf
 KERNEL_BIN  = $(BUILD)/kernel.bin
 KERNEL_PAD  = $(BUILD)/kernel.padded.bin
 OS_IMAGE    = $(BUILD)/os.img
+# Standard 1.44 MiB floppy size (80 cyl * 2 heads * 18 sectors * 512 bytes).
+FLOPPY_SIZE = 1474560
 
 # ── Targets ──────────────────────────────────────────────────────────
 
@@ -69,14 +71,13 @@ $(KERNEL_BIN): $(KERNEL_ELF)
 $(KERNEL_PAD): $(KERNEL_BIN)
 	dd if=$< of=$@ bs=512 conv=sync
 
-# Bootloader reads 48 sectors (24 KiB) starting at sector 2 (byte 512). The image
-# must be at least 512 + 48*512 bytes or SeaBIOS can hang at "Booting from Floppy...".
+# Pad to a standard 1.44 MiB geometry so SeaBIOS/QEMU accept the floppy (avoids
+# hangs at "Booting from Floppy..."). Also satisfies the BIOS read span from sector 2.
 $(OS_IMAGE): $(BOOT_BIN) $(KERNEL_PAD)
 	cat $^ > $@
 	@SZ=$$(wc -c < $@ | awk '{print $$1}'); \
-	MIN=25088; \
-	if [ $$SZ -lt $$MIN ]; then \
-	  dd if=/dev/zero bs=1 count=$$((MIN - $$SZ)) >> $@; \
+	if [ $$SZ -lt $(FLOPPY_SIZE) ]; then \
+	  dd if=/dev/zero bs=$$(($(FLOPPY_SIZE) - $$SZ)) count=1 >> $@; \
 	fi
 
 run: $(OS_IMAGE)
