@@ -758,7 +758,6 @@ void kernel_main(void) {
     idt_init();
     kmalloc_init();
     ramdisk_init();
-    ide_init();
 
     print_banner();
     print_prompt();

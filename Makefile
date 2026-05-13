@@ -99,15 +99,18 @@ hdd-docker: | $(BUILD)
 	docker run --rm -v "$$(pwd)":/os -w /os ubuntu:22.04 bash -lc \
 	  'apt-get update -qq && apt-get install -y -qq dosfstools && rm -f $(HDD_IMG) && mkfs.vfat -F 16 -C $(HDD_IMG) 16384'
 
-run: $(OS_IMAGE) $(HDD_IMG)
-	qemu-system-i386 \
-	  -drive file=$(OS_IMAGE),format=raw,if=floppy -boot order=a \
+# -no-reboot: triple-fault shows an error instead of a BIOS/shell flash loop.
+# menu=off: avoids SeaBIOS boot menu popping over the guest (looks like flicker).
+QEMU_BASE = qemu-system-i386 -no-reboot \
+	  -drive file=$(OS_IMAGE),format=raw,if=floppy \
+	  -boot order=a,menu=off \
 	  -drive file=$(HDD_IMG),format=raw,if=ide,index=0,media=disk,cache=unsafe
 
+run: $(OS_IMAGE) $(HDD_IMG)
+	$(QEMU_BASE)
+
 debug: $(OS_IMAGE) $(HDD_IMG)
-	qemu-system-i386 \
-	  -drive file=$(OS_IMAGE),format=raw,if=floppy -boot order=a \
-	  -drive file=$(HDD_IMG),format=raw,if=ide,index=0,media=disk,cache=unsafe \
+	$(QEMU_BASE) \
 	  -s -S -monitor stdio
 
 docker:

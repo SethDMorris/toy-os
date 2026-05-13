@@ -41,7 +41,13 @@ static int ide_wait_drq(void) {
     return -3;
 }
 
+static int ide_inited;
+
 void ide_init(void) {
+    if (ide_inited)
+        return;
+    ide_inited = 1;
+
     /* Software reset on bus (both drives). */
     outb(IDE_CONTROL, 0x04);
     io_wait();
@@ -49,12 +55,17 @@ void ide_init(void) {
     outb(IDE_CONTROL, 0);
     io_wait();
     io_wait();
+    /* ATA: allow bus to settle after deasserting SRST (OSDev / spec). */
+    for (int i = 0; i < 16; i++)
+        (void)inb(IDE_STATUS);
 
     (void)ide_wait_ready();
 }
 
 int ide_read_sector(uint32_t lba, void *buf512) {
     uint16_t *w = (uint16_t *)buf512;
+
+    ide_init();
 
     if (ide_wait_ready() != 0)
         return -1;
@@ -78,6 +89,8 @@ int ide_read_sector(uint32_t lba, void *buf512) {
 
 int ide_write_sector(uint32_t lba, const void *buf512) {
     const uint16_t *w = (const uint16_t *)buf512;
+
+    ide_init();
 
     if (ide_wait_ready() != 0)
         return -1;
