@@ -11,6 +11,7 @@ static char kb_buf[KB_BUF_SIZE];
 static volatile int kb_w;
 static int kb_r;
 static int shift_held;
+static int kb_e0_prefix; /* PS/2 extended scancode: 0xE0 then real code */
 
 /* US QWERTY scancode set 1 */
 static const char sc_normal[128] = {
@@ -48,18 +49,51 @@ void keyboard_irq_handler(void) {
         outb(0x20, 0x20);
         return;
     }
-    if (sc & 0x80) {               /* key release — ignore */
+
+    /* 0xE0 is an extended-prefix byte, not a key-up (bit 7 alone is not enough). */
+    if (sc == 0xE0) {
+        kb_e0_prefix = 1;
         outb(0x20, 0x20);
         return;
     }
 
-    char c = shift_held ? sc_shift[sc] : sc_normal[sc];
-    if (c) {
-        kb_buf[kb_w] = c;
-        kb_w = (kb_w + 1) % KB_BUF_SIZE;
+    if (kb_e0_prefix) {
+        kb_e0_prefix = 0;
+        if (sc & 0x80) { /* extended key release */
+            outb(0x20, 0x20);
+            return;
+        }
+        if (sc >= sizeof(sc_normal))
+            goto done_pic;
+        /* If QEMU/host pairs E0 with a “normal” make code, still deliver the key. */
+        {
+            char c = shift_held ? sc_shift[sc] : sc_normal[sc];
+            if (c) {
+                kb_buf[kb_w] = c;
+                kb_w = (kb_w + 1) % KB_BUF_SIZE;
+            }
+        }
+        goto done_pic;
     }
 
-    outb(0x20, 0x20);              /* EOI to master PIC */
+    if (sc & 0x80) { /* normal key release */
+        outb(0x20, 0x20);
+        return;
+    }
+
+    if (sc >= sizeof(sc_normal))
+        goto done_pic;
+
+    {
+        char c = shift_held ? sc_shift[sc] : sc_normal[sc];
+        if (c) {
+            kb_buf[kb_w] = c;
+            kb_w = (kb_w + 1) % KB_BUF_SIZE;
+        }
+    }
+
+done_pic:
+    outb(0x20, 0x20); /* EOI to master PIC */
 }
 
 char keyboard_getchar(void) {

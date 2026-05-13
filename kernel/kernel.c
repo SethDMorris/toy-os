@@ -68,7 +68,7 @@ static void print_uint32(uint32_t n) {
 }
 
 static const char *skip_ws(const char *s) {
-    while (*s == ' ')
+    while (*s == ' ' || *s == '\t' || *s == '\r')
         s++;
     return s;
 }
@@ -126,7 +126,8 @@ static void cmd_help(void) {
     print_label("  heap     ");  print_value("Bump allocator stats (extended memory)\n");
     print_label("  ls       ");  print_value("List ramdisk files\n");
     print_label("  cat      ");  print_value("Print a ramdisk file (usage: cat <name>)\n");
-    print_label("  write    ");  print_value("Create/overwrite file (usage: write <name> <text>)\n");
+    print_label("  write    ");  print_value("Create/overwrite (usage: write <name> <text>)\n");
+    print_label("            ");  print_value("  <name> is one word — no spaces in filenames.\n");
     print_label("  rm       ");  print_value("Remove a ramdisk file (usage: rm <name>)\n");
     print_label("  color    ");  print_value("Change text color (usage: color <0-15>)\n");
     print_label("  fortune  ");  print_value("Random computing quote\n");
